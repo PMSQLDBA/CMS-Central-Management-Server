@@ -1,0 +1,70 @@
+T-SQL to populate a Central Management Server
+--https://sqlstudies.com/2014/11/17/using-t-sql-to-populate-a-cms/
+
+Owner: Kenneth Fisher
+
+Within CMS we can organize our instances by groupings. 
+By creating multiple different types of groupings we can make searching for just the right instance much easier. 
+Have an “instance” table with a list of available instances and some information about them.
+====================================================================================================================
+use master
+CREATE TABLE Instance (Instance varchar(255), SQLVersion varchar(10), 
+    SDLC varchar(20));
+====================================================================================================================
+--Example: 
+
+INSERT INTO Instance VALUES
+    ('(local)\sql2014cs','2014','Production'),
+    ('(local)\sql2014ci','2014','Test'),
+    ('(local)\sql2012','2012','Development'),
+    ('(local)\SQLEXPRESS2012','2012','Production'),
+    ('(local)\sql2008R2','2008 R2','Development');
+====================================================================================================================
+--First step is to create the groupings:
+
+-- Version category
+INSERT INTO msdb.dbo.[sysmanagement_shared_server_groups_internal] VALUES ('Version','Instance Version',0,1,0);
+ 
+-- Version subcategories
+INSERT INTO msdb.dbo.[sysmanagement_shared_server_groups_internal] 
+SELECT DISTINCT Instance.SQLVersion, Instance.SQLVersion, 0,Parent.server_group_id, 0
+FROM Instance
+CROSS JOIN msdb.dbo.[sysmanagement_shared_server_groups_internal] Parent
+WHERE Parent.name = 'Version';
+ 
+-- SDLC category
+INSERT INTO msdb.dbo.[sysmanagement_shared_server_groups_internal] VALUES ('SDLC','Instance SDLC level',0,1,0);
+ 
+-- SDLC subcategories
+INSERT INTO msdb.dbo.[sysmanagement_shared_server_groups_internal] 
+SELECT DISTINCT Instance.SDLC, Instance.SDLC, 0, Parent.server_group_id, 0
+FROM Instance
+CROSS JOIN msdb.dbo.[sysmanagement_shared_server_groups_internal] Parent
+WHERE Parent.name = 'SDLC';
+====================================================================================================================
+
+--add in the actual instances
+
+-- Instances broken out by Version
+INSERT INTO msdb.dbo.[sysmanagement_shared_registered_servers_internal] 
+SELECT Parent.server_group_id, Instance.Instance, Instance.Instance,
+    Instance.Instance + ' - ' + Instance.SDLC, 0
+FROM Instance
+JOIN msdb.dbo.[sysmanagement_shared_server_groups_internal] Parent
+    ON Instance.SQLVersion = Parent.name
+ 
+-- Instances broken out by SDLC
+INSERT INTO msdb.dbo.[sysmanagement_shared_registered_servers_internal] 
+SELECT Parent.server_group_id, Instance.Instance, Instance.Instance,
+    Instance.Instance + ' - ' + Instance.SQLVersion, 0
+FROM Instance
+JOIN msdb.dbo.[sysmanagement_shared_server_groups_internal] Parent
+    ON Instance.SDLC = Parent.name
+====================================================================================================================
+
+we can see that we now have the instances listed in a couple of different ways. 
+When there are dozens or hundreds of instances grouping them like this can make finding the one you want considerably easier. 
+Particularly when you aren’t all that familiar with their names. 
+By adding them programmatically we saved a lot of time and energy not to mention avoiding potential mistakes. 
+And of course if you have a single maintained list like mine (maybe one kept for auditing or monitoring purposes, or even another CMS) 
+you could easily create a scheduled job to update your CMS on a regular basis.
